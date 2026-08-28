@@ -106,6 +106,22 @@ document.addEventListener('keyup', (e) => {
 
 restartButton.addEventListener('click', resetGame);
 
+// タッチ操作（スマホ用の仮想ボタン）
+function bindTouchButton(id, keyName) {
+    const btn = document.getElementById(id);
+    const press = (e) => { e.preventDefault(); keys[keyName] = true; };
+    const release = (e) => { e.preventDefault(); keys[keyName] = false; };
+    btn.addEventListener('touchstart', press, { passive: false });
+    btn.addEventListener('touchend', release);
+    btn.addEventListener('touchcancel', release);
+    btn.addEventListener('mousedown', press);
+    btn.addEventListener('mouseup', release);
+    btn.addEventListener('mouseleave', release);
+}
+bindTouchButton('btnLeft', 'left');
+bindTouchButton('btnRight', 'right');
+bindTouchButton('btnShot', 'space');
+
 function drawStars() {
     ctx.fillStyle = 'white';
     stars.forEach(star => {

@@ -4,7 +4,7 @@ body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    height: 100vh;
+    min-height: 100vh;
     margin: 0;
     font-family: sans-serif;
 }
@@ -12,7 +12,8 @@ body {
 #gameContainer {
     position: relative;
     width: 480px; /* canvas.width と合わせる */
-    height: 640px; /* canvas.height と合わせる */
+    max-width: 100vw; /* スマホでは画面幅に収める */
+    aspect-ratio: 480 / 640; /* canvas の縦横比を維持 */
     border: 2px solid #333;
     overflow: hidden; /* 子要素がはみ出さないように */
 }
@@ -20,6 +21,8 @@ body {
 canvas {
     background-color: #000;
     display: block; /* canvasの下に謎の余白ができないように */
+    width: 100%;
+    height: 100%;
 }
 
 #gameOverScreen {
@@ -55,4 +58,33 @@ canvas {
 
 #restartButton:hover {
     background-color: #0056b3;
+}
+
+#touchControls {
+    display: flex;
+    gap: 12px;
+    margin-top: 12px;
+    width: 480px;
+    max-width: calc(100vw - 24px);
+    justify-content: center;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+#touchControls button {
+    flex: 1;
+    padding: 18px 0;
+    font-size: 1.4em;
+    font-weight: bold;
+    background-color: #333;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    touch-action: none; /* 長押しメニューやスクロールを抑止 */
+    -webkit-tap-highlight-color: transparent;
+}
+
+#touchControls button:active {
+    background-color: #007bff;
 }
