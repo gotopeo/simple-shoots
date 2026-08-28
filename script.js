@@ -58,6 +58,28 @@ let enemies = [];
 const enemyWidth = 40;
 const enemyHeight = 40;
 const enemyRadius = 15;
+
+// 敵の種類
+const enemyTypeDefs = {
+    normal: { color: '#ff3366', hp: 1, speedFactor: 1.0, score: 10, radius: 15 },
+    zigzag: { color: '#ffaa00', hp: 1, speedFactor: 0.9, score: 20, radius: 15 },
+    speedy: { color: '#66ff33', hp: 1, speedFactor: 2.2, score: 30, radius: 12 },
+    tank:   { color: '#aa66ff', hp: 3, speedFactor: 0.5, score: 50, radius: 18 }
+};
+
+// スコアに応じて出現する敵の種類を抽選（高スコアほど強敵が混ざる）
+function pickEnemyType() {
+    const pool = [['normal', 50], ['zigzag', 25]];
+    if (score >= 100) pool.push(['speedy', 15]);
+    if (score >= 300) pool.push(['tank', 12]);
+    const total = pool.reduce((sum, p) => sum + p[1], 0);
+    let roll = Math.random() * total;
+    for (const [type, weight] of pool) {
+        roll -= weight;
+        if (roll < 0) return type;
+    }
+    return 'normal';
+}
 const initialEnemySpeed = 2;
 let enemySpeed = initialEnemySpeed;
 let enemySpawnTimer = 0;
@@ -271,7 +293,14 @@ function spawnEnemies() {
     if (enemySpawnTimer > currentSpawnRate) {
         const x = Math.random() * (canvas.width - enemyWidth);
         const y = -enemyHeight;
-        enemies.push({ x, y, width: enemyWidth, height: enemyHeight, color: '#ff3366' });
+        const type = pickEnemyType();
+        const def = enemyTypeDefs[type];
+        enemies.push({
+            x, y, width: enemyWidth, height: enemyHeight,
+            type, color: def.color, hp: def.hp, maxHp: def.hp,
+            scoreValue: def.score, speedFactor: def.speedFactor, radius: def.radius,
+            baseX: x, phase: Math.random() * Math.PI * 2
+        });
         enemySpawnTimer = 0;
     }
 
@@ -390,16 +419,57 @@ function drawEnemies() {
         ctx.save();
         ctx.translate(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
         ctx.fillStyle = enemy.color;
-        ctx.beginPath();
-        ctx.moveTo(0, enemy.height / 2);
-        ctx.lineTo(enemy.width / 2, -enemy.height / 2);
-        ctx.lineTo(0, -enemy.height / 4);
-        ctx.lineTo(-enemy.width / 2, -enemy.height / 2);
-        ctx.closePath();
-        ctx.fill();
-        ctx.fillStyle = 'black';
-        ctx.fillRect(-10, -5, 5, 5);
-        ctx.fillRect(5, -5, 5, 5);
+        if (enemy.type === 'tank') {
+            ctx.beginPath();
+            ctx.moveTo(-enemy.width / 2, 0);
+            ctx.lineTo(-enemy.width / 4, -enemy.height / 2);
+            ctx.lineTo(enemy.width / 4, -enemy.height / 2);
+            ctx.lineTo(enemy.width / 2, 0);
+            ctx.lineTo(enemy.width / 4, enemy.height / 2);
+            ctx.lineTo(-enemy.width / 4, enemy.height / 2);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = 'black';
+            ctx.fillRect(-8, -4, 5, 5);
+            ctx.fillRect(3, -4, 5, 5);
+            ctx.fillStyle = '#222';
+            ctx.fillRect(-15, -enemy.height / 2 - 9, 30, 4);
+            ctx.fillStyle = enemy.color;
+            ctx.fillRect(-15, -enemy.height / 2 - 9, (enemy.hp / enemy.maxHp) * 30, 4);
+        } else if (enemy.type === 'zigzag') {
+            ctx.rotate(Math.sin(enemy.y / 20 + enemy.phase) * 0.4);
+            ctx.beginPath();
+            ctx.moveTo(0, -enemy.height / 2);
+            ctx.lineTo(enemy.width / 2, 0);
+            ctx.lineTo(0, enemy.height / 2);
+            ctx.lineTo(-enemy.width / 2, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = 'black';
+            ctx.fillRect(-7, -3, 4, 4);
+            ctx.fillRect(3, -3, 4, 4);
+        } else if (enemy.type === 'speedy') {
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = enemy.color;
+            ctx.beginPath();
+            ctx.moveTo(0, enemy.height / 2);
+            ctx.lineTo(enemy.width / 4, -enemy.height / 2);
+            ctx.lineTo(0, -enemy.height / 4);
+            ctx.lineTo(-enemy.width / 4, -enemy.height / 2);
+            ctx.closePath();
+            ctx.fill();
+        } else {
+            ctx.beginPath();
+            ctx.moveTo(0, enemy.height / 2);
+            ctx.lineTo(enemy.width / 2, -enemy.height / 2);
+            ctx.lineTo(0, -enemy.height / 4);
+            ctx.lineTo(-enemy.width / 2, -enemy.height / 2);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = 'black';
+            ctx.fillRect(-10, -5, 5, 5);
+            ctx.fillRect(5, -5, 5, 5);
+        }
         ctx.restore();
     });
 }
@@ -407,8 +477,13 @@ function drawEnemies() {
 function moveEnemies() {
     enemySpeed = initialEnemySpeed + Math.floor(score / 200) * 0.5;
     for (let i = enemies.length - 1; i >= 0; i--) {
-        enemies[i].y += enemySpeed;
-        if (enemies[i].y > canvas.height) enemies.splice(i, 1);
+        const e = enemies[i];
+        e.y += enemySpeed * (e.speedFactor || 1);
+        if (e.type === 'zigzag') {
+            e.x = e.baseX + Math.sin(e.y / 40 + e.phase) * 60;
+            e.x = Math.max(0, Math.min(canvas.width - e.width, e.x));
+        }
+        if (e.y > canvas.height) enemies.splice(i, 1);
     }
 }
 
@@ -471,12 +546,17 @@ function checkCollisions() {
         const b = playerBullets[i];
         for (let j = enemies.length - 1; j >= 0; j--) {
             const e = enemies[j];
-            if (isColliding(b, e, 3, enemyRadius)) {
-                createExplosion(e.x + e.width / 2, e.y + e.height / 2, e.color);
-                spawnItem(e.x + e.width / 2, e.y + e.height / 2);
+            if (isColliding(b, e, 3, e.radius || enemyRadius)) {
                 playerBullets.splice(i, 1);
-                enemies.splice(j, 1);
-                score += 10;
+                e.hp--;
+                if (e.hp <= 0) {
+                    createExplosion(e.x + e.width / 2, e.y + e.height / 2, e.color);
+                    spawnItem(e.x + e.width / 2, e.y + e.height / 2);
+                    enemies.splice(j, 1);
+                    score += e.scoreValue || 10;
+                } else {
+                    createExplosion(b.x, b.y, '#ffffff');
+                }
                 break;
             }
         }
@@ -494,7 +574,7 @@ function checkCollisions() {
     }
     if (player.invincible <= 0) {
         let hit = false;
-        enemies.forEach((e, idx) => { if (isColliding(player, e, player.radius, enemyRadius)) { hit = true; enemies.splice(idx, 1); } });
+        enemies.forEach((e, idx) => { if (isColliding(player, e, player.radius, e.radius || enemyRadius)) { hit = true; enemies.splice(idx, 1); } });
         enemyBullets.forEach((b, idx) => { if (isColliding(player, b, player.radius, 4)) { hit = true; enemyBullets.splice(idx, 1); } });
         if (boss && isColliding(player, boss, player.radius, boss.radius)) hit = true;
         if (hit) {
