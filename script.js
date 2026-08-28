@@ -107,6 +107,24 @@ let score = 0;
 let lastBossScore = 0;
 let gameOver = false;
 
+// コンボ（連続撃破でスコア倍率アップ）
+let combo = 0;
+let lastKillTime = 0;
+const comboTimeout = 3000; // この時間(ms)撃破がないとリセット
+const comboMaxMultiplier = 4;
+
+function comboMultiplier() {
+    return Math.min(comboMaxMultiplier, 1 + combo * 0.1);
+}
+
+function addKillScore(base) {
+    const now = Date.now();
+    if (now - lastKillTime > comboTimeout) combo = 0;
+    combo++;
+    lastKillTime = now;
+    score += Math.round(base * comboMultiplier());
+}
+
 // キー入力
 const keys = {
     right: false,
@@ -298,9 +316,9 @@ function spawnEnemies() {
         enemySpawnTimer = 0;
     }
 
-    if (score > 0 && score % 500 === 0 && score !== lastBossScore) {
+    if (score >= lastBossScore + 500) {
         spawnBoss();
-        lastBossScore = score;
+        lastBossScore += 500;
     }
 }
 
@@ -547,7 +565,7 @@ function checkCollisions() {
                     createExplosion(e.x + e.width / 2, e.y + e.height / 2, e.color);
                     spawnItem(e.x + e.width / 2, e.y + e.height / 2);
                     enemies.splice(j, 1);
-                    score += e.scoreValue || 10;
+                    addKillScore(e.scoreValue || 10);
                 } else {
                     createExplosion(b.x, b.y, '#ffffff');
                 }
@@ -560,7 +578,7 @@ function checkCollisions() {
             playerBullets.splice(i, 1);
             if (boss.hp <= 0) {
                 createExplosion(boss.x + boss.width / 2, boss.y + boss.height / 2, '#ff00ff');
-                score += 200;
+                addKillScore(200);
                 boss = null;
                 player.lives = Math.min(5, player.lives + 1);
             }
@@ -572,6 +590,7 @@ function checkCollisions() {
         enemyBullets.forEach((b, idx) => { if (isColliding(player, b, player.radius, 4)) { hit = true; enemyBullets.splice(idx, 1); } });
         if (boss && isColliding(player, boss, player.radius, boss.radius)) hit = true;
         if (hit) {
+            combo = 0; // 被弾でコンボリセット
             if (player.powerUp === 'barrier') { player.powerUp = null; player.invincible = 60; createExplosion(player.x + player.width / 2, player.y + player.height / 2, '#00ffff'); }
             else { player.lives--; player.invincible = 120; createExplosion(player.x + player.width / 2, player.y + player.height / 2, player.color); if (player.lives <= 0) gameOver = true; }
         }
@@ -585,6 +604,15 @@ function drawUI() {
     ctx.fillStyle = 'white';
     ctx.font = 'bold 20px Arial';
     ctx.fillText(`SCORE: ${score}`, 10, 30);
+    if (combo >= 2) {
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#ffcc00';
+        ctx.font = 'bold 18px Arial';
+        ctx.fillText(`${combo} COMBO ×${comboMultiplier().toFixed(1)}`, canvas.width - 10, 30);
+        ctx.textAlign = 'left';
+        ctx.font = 'bold 20px Arial';
+        ctx.fillStyle = 'white';
+    }
     for (let i = 0; i < player.lives; i++) {
         ctx.fillStyle = player.color;
         ctx.beginPath(); ctx.moveTo(30 + i * 25, 50); ctx.lineTo(40 + i * 25, 70); ctx.lineTo(20 + i * 25, 70); ctx.closePath(); ctx.fill();
@@ -602,6 +630,7 @@ function resetGame() {
     player.x = canvas.width / 2 - 20; player.y = canvas.height - 60; player.lives = 3; player.powerUp = null; player.powerUpTimer = 0; player.invincible = 0;
     playerBullets = []; enemies = []; enemyBullets = []; particles = []; items = [];
     score = 0; lastBossScore = 0; gameOver = false;
+    combo = 0; lastKillTime = 0;
     enemySpawnTimer = 0; enemyShootTimer = 0; enemySpeed = initialEnemySpeed; boss = null;
     gameOverScreen.style.display = 'none';
     requestAnimationFrame(update);
@@ -624,6 +653,7 @@ function showGameOver() {
 
 function update() {
     if (gameOver) { showGameOver(); return; }
+    if (combo > 0 && Date.now() - lastKillTime > comboTimeout) combo = 0;
     clearCanvas();
     moveStars(); drawStars();
     movePlayer(); playerShoot();
