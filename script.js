@@ -89,18 +89,24 @@ let gameOver = false;
 const keys = {
     right: false,
     left: false,
+    up: false,
+    down: false,
     space: false
 };
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowRight') keys.right = true;
     if (e.key === 'ArrowLeft') keys.left = true;
+    if (e.key === 'ArrowUp') keys.up = true;
+    if (e.key === 'ArrowDown') keys.down = true;
     if (e.key === ' ') keys.space = true;
 });
 
 document.addEventListener('keyup', (e) => {
     if (e.key === 'ArrowRight') keys.right = false;
     if (e.key === 'ArrowLeft') keys.left = false;
+    if (e.key === 'ArrowUp') keys.up = false;
+    if (e.key === 'ArrowDown') keys.down = false;
     if (e.key === ' ') keys.space = false;
 });
 
@@ -120,6 +126,8 @@ function bindTouchButton(id, keyName) {
 }
 bindTouchButton('btnLeft', 'left');
 bindTouchButton('btnRight', 'right');
+bindTouchButton('btnUp', 'up');
+bindTouchButton('btnDown', 'down');
 bindTouchButton('btnShot', 'space');
 
 function drawStars() {
@@ -188,6 +196,13 @@ function movePlayer() {
         player.dx = -currentSpeed;
     }
     player.x += player.dx;
+
+    if (keys.up && player.y > 0) {
+        player.y -= currentSpeed;
+    }
+    if (keys.down && player.y < canvas.height - player.height) {
+        player.y += currentSpeed;
+    }
 
     if (player.invincible > 0) player.invincible--;
     if (player.powerUpTimer > 0) {
