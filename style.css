@@ -41,8 +41,35 @@ canvas {
     display: none; /* 初期状態では非表示 */
 }
 
+#gameOverScreen h2 {
+    margin: 0 0 10px;
+    letter-spacing: 0.1em;
+}
+
 #gameOverScreen p {
-    margin-bottom: 20px;
+    margin: 0 0 10px;
+}
+
+#newRecord {
+    display: none;
+    color: #ffeb3b;
+    font-size: 0.7em;
+    font-weight: bold;
+    animation: recordBlink 0.8s step-end infinite;
+}
+
+@keyframes recordBlink {
+    50% { opacity: 0.2; }
+}
+
+#finalScore {
+    font-size: 0.9em;
+}
+
+#bestScore {
+    font-size: 0.7em;
+    color: #aaa;
+    margin-bottom: 24px;
 }
 
 #restartButton {

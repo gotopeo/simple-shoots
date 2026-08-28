@@ -533,8 +533,23 @@ function resetGame() {
     requestAnimationFrame(update);
 }
 
+// ゲームオーバー画面にスコアとベスト記録を表示
+function showGameOver() {
+    let best = 0;
+    try { best = parseInt(localStorage.getItem('simpleShootsBest'), 10) || 0; } catch (e) {}
+    const isNewRecord = score > best;
+    if (isNewRecord) {
+        best = score;
+        try { localStorage.setItem('simpleShootsBest', best); } catch (e) {}
+    }
+    document.getElementById('newRecord').style.display = isNewRecord ? 'block' : 'none';
+    document.getElementById('finalScore').textContent = `SCORE: ${score}`;
+    document.getElementById('bestScore').textContent = `BEST: ${best}`;
+    gameOverScreen.style.display = 'flex';
+}
+
 function update() {
-    if (gameOver) { gameOverScreen.style.display = 'flex'; return; }
+    if (gameOver) { showGameOver(); return; }
     clearCanvas();
     moveStars(); drawStars();
     movePlayer(); playerShoot();
