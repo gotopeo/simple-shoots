@@ -110,47 +110,47 @@ let gameOver = false;
 // キー入力
 const keys = {
     right: false,
-    left: false,
-    up: false,
-    down: false,
-    space: false
+    left: false
 };
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowRight') keys.right = true;
     if (e.key === 'ArrowLeft') keys.left = true;
-    if (e.key === 'ArrowUp') keys.up = true;
-    if (e.key === 'ArrowDown') keys.down = true;
-    if (e.key === ' ') keys.space = true;
 });
 
 document.addEventListener('keyup', (e) => {
     if (e.key === 'ArrowRight') keys.right = false;
     if (e.key === 'ArrowLeft') keys.left = false;
-    if (e.key === 'ArrowUp') keys.up = false;
-    if (e.key === 'ArrowDown') keys.down = false;
-    if (e.key === ' ') keys.space = false;
 });
 
 restartButton.addEventListener('click', resetGame);
 
-// タッチ操作（スマホ用の仮想ボタン）
-function bindTouchButton(id, keyName) {
-    const btn = document.getElementById(id);
-    const press = (e) => { e.preventDefault(); keys[keyName] = true; };
-    const release = (e) => { e.preventDefault(); keys[keyName] = false; };
-    btn.addEventListener('touchstart', press, { passive: false });
-    btn.addEventListener('touchend', release);
-    btn.addEventListener('touchcancel', release);
-    btn.addEventListener('mousedown', press);
-    btn.addEventListener('mouseup', release);
-    btn.addEventListener('mouseleave', release);
+// タッチ操作: 画面の左半分を押すと左移動、右半分を押すと右移動（ショットは自動発射）
+function updateTouchZones(e) {
+    if (e.target.tagName === 'BUTTON') return; // リスタートボタンの操作は邪魔しない
+    keys.left = false;
+    keys.right = false;
+    for (const t of e.touches) {
+        if (t.clientX < window.innerWidth / 2) keys.left = true;
+        else keys.right = true;
+    }
+    e.preventDefault();
 }
-bindTouchButton('btnLeft', 'left');
-bindTouchButton('btnRight', 'right');
-bindTouchButton('btnUp', 'up');
-bindTouchButton('btnDown', 'down');
-bindTouchButton('btnShot', 'space');
+document.addEventListener('touchstart', updateTouchZones, { passive: false });
+document.addEventListener('touchmove', updateTouchZones, { passive: false });
+document.addEventListener('touchend', updateTouchZones, { passive: false });
+document.addEventListener('touchcancel', updateTouchZones, { passive: false });
+
+// マウスでも左右半分クリックで移動できるようにしておく（PC確認用）
+document.addEventListener('mousedown', (e) => {
+    if (e.target.tagName === 'BUTTON') return;
+    if (e.clientX < window.innerWidth / 2) keys.left = true;
+    else keys.right = true;
+});
+document.addEventListener('mouseup', () => {
+    keys.left = false;
+    keys.right = false;
+});
 
 function drawStars() {
     ctx.fillStyle = 'white';
@@ -219,13 +219,6 @@ function movePlayer() {
     }
     player.x += player.dx;
 
-    if (keys.up && player.y > 0) {
-        player.y -= currentSpeed;
-    }
-    if (keys.down && player.y < canvas.height - player.height) {
-        player.y += currentSpeed;
-    }
-
     if (player.invincible > 0) player.invincible--;
     if (player.powerUpTimer > 0) {
         player.powerUpTimer--;
@@ -233,9 +226,10 @@ function movePlayer() {
     }
 }
 
+// ショットは自動発射
 function playerShoot() {
     const now = Date.now();
-    if (keys.space && now - lastShootTime > shootInterval) {
+    if (now - lastShootTime > shootInterval) {
         if (player.powerUp === 'wide') {
             const angles = [-0.2, 0, 0.2];
             angles.forEach(angle => {
