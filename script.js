@@ -278,7 +278,7 @@ function pickEnemyType() {
 const initialEnemySpeed = 2;
 let enemySpeed = initialEnemySpeed;
 let enemySpawnTimer = 0;
-const initialEnemySpawnRate = 100;
+const initialEnemySpawnRate = 130;
 
 // アイテム
 let items = [];
@@ -576,12 +576,12 @@ function spawnEnemies() {
     enemySpawnTimer++;
     const level = difficultyLevel();
     // 難易度はスピードではなく「数」で上げる: 間隔は少しだけ短く、同時出現数が主に増える
-    const currentSpawnRate = Math.max(50, initialEnemySpawnRate - level * 4);
+    const currentSpawnRate = Math.max(70, initialEnemySpawnRate - level * 4);
     if (enemySpawnTimer > currentSpawnRate) {
         let count = 1;
         const maxExtra = Math.min(3, level - 1);
         for (let i = 0; i < maxExtra; i++) {
-            if (Math.random() < 0.45) count++;
+            if (Math.random() < 0.35) count++;
         }
         for (let i = 0; i < count; i++) spawnOneEnemy();
         enemySpawnTimer = 0;
@@ -719,7 +719,7 @@ function drawBoss() {
 }
 
 function spawnItem(x, y) {
-    if (Math.random() < 0.2) {
+    if (Math.random() < 0.12) {
         // アイテムも中ボス撃破ごとに解禁: W → S → B → ♥（♥だけ出にくい）
         const pool = [[itemTypes[0], 30]];
         if (bossesDefeated >= 1) pool.push([itemTypes[1], 30]);
