@@ -298,6 +298,69 @@ const initialEnemyShootRate = 70;
 // パーティクル
 let particles = [];
 
+// 隕石（ある程度進むと出現し、敵が後ろに隠れて一瞬見えなくなる）
+let asteroids = [];
+let asteroidSpawnTimer = 0;
+
+function spawnAsteroids() {
+    if (bossesDefeated < 2) return; // 中ボス2体撃破後から登場
+    asteroidSpawnTimer++;
+    if (asteroidSpawnTimer < 300) return;
+    asteroidSpawnTimer = 0;
+    if (asteroids.length >= 3) return;
+    const fromLeft = Math.random() < 0.5;
+    const size = 60 + Math.random() * 50;
+    asteroids.push({
+        x: fromLeft ? -size : canvas.width + size,
+        y: 120 + Math.random() * 260,
+        size,
+        vx: (fromLeft ? 1 : -1) * (0.4 + Math.random() * 0.5),
+        rotation: Math.random() * Math.PI * 2,
+        rotSpeed: (Math.random() - 0.5) * 0.02,
+        bobPhase: Math.random() * Math.PI * 2,
+        verts: Array.from({ length: 9 }, () => 0.75 + Math.random() * 0.35) // 岩のギザギザ
+    });
+}
+
+function moveAsteroids() {
+    for (let i = asteroids.length - 1; i >= 0; i--) {
+        const a = asteroids[i];
+        a.x += a.vx;
+        a.bobPhase += 0.01;
+        a.y += Math.sin(a.bobPhase) * 0.3; // ふわふわ浮遊
+        a.rotation += a.rotSpeed;
+        if (a.x < -a.size * 1.5 || a.x > canvas.width + a.size * 1.5) asteroids.splice(i, 1);
+    }
+}
+
+// 敵・ボスより後に描くことで、後ろを通った敵が隠れる（弾と自機は隠れない）
+function drawAsteroids() {
+    asteroids.forEach(a => {
+        ctx.save();
+        ctx.translate(a.x, a.y);
+        ctx.rotate(a.rotation);
+        const r = a.size / 2;
+        ctx.fillStyle = '#777777';
+        ctx.beginPath();
+        a.verts.forEach((v, i) => {
+            const ang = i / a.verts.length * Math.PI * 2;
+            const px = Math.cos(ang) * r * v;
+            const py = Math.sin(ang) * r * v;
+            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        });
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#555555';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.fillStyle = '#5a5a5a'; // クレーター
+        ctx.beginPath(); ctx.arc(-r * 0.3, -r * 0.15, r * 0.18, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(r * 0.25, r * 0.3, r * 0.12, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(r * 0.1, -r * 0.35, r * 0.1, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+    });
+}
+
 // スコア
 let score = 0;
 let lastBossScore = 0;
@@ -924,6 +987,7 @@ function clearCanvas() { ctx.clearRect(0, 0, canvas.width, canvas.height); }
 function resetGame() {
     player.x = canvas.width / 2 - 20; player.y = canvas.height - 60; player.lives = 3; player.powerUp = null; player.powerUpTimer = 0; player.invincible = 0;
     playerBullets = []; enemies = []; enemyBullets = []; particles = []; items = [];
+    asteroids = []; asteroidSpawnTimer = 0;
     score = 0; lastBossScore = 0; gameOver = false;
     combo = 0; lastKillTime = 0;
     enemySpawnTimer = 0; enemyShootTimer = 0; enemySpeed = initialEnemySpeed;
@@ -954,10 +1018,11 @@ function update() {
     moveStars(); drawStars();
     movePlayer(); playerShoot();
     spawnEnemies(); moveEnemies(); moveBoss();
+    spawnAsteroids(); moveAsteroids();
     enemyShoot(); moveEnemyBullets();
     movePlayerBullets(); moveItems(); moveParticles();
     checkCollisions();
-    drawPlayer(); drawEnemies(); drawBoss(); drawItems(); drawPlayerBullets(); drawEnemyBullets(); drawParticles(); drawUI();
+    drawPlayer(); drawEnemies(); drawBoss(); drawAsteroids(); drawItems(); drawPlayerBullets(); drawEnemyBullets(); drawParticles(); drawUI();
     requestAnimationFrame(update);
 }
 
