@@ -22,6 +22,19 @@ for (let i = 0; i < 100; i++) {
 let boss = null;
 const bossWidth = 120;
 const bossHeight = 80;
+let bossCount = 0;
+
+// 中ボスの種類（出現するたびに切り替わる）
+const bossTypeDefs = {
+    spread:  { color: '#9900cc', glow: 'purple', bulletColor: '#ff00ff' }, // 扇状にばらまく
+    spinner: { color: '#cc3300', glow: 'orange', bulletColor: '#ff9900' }, // 回転しながら8方向弾
+    sniper:  { color: '#0066cc', glow: 'cyan',   bulletColor: '#00ccff' }  // 自機を狙い撃ち
+};
+
+// 難易度レベル（スコア300ごとに1上昇。敵の数が増えていく）
+function difficultyLevel() {
+    return 1 + Math.floor(score / 300);
+}
 
 // 当たり判定用関数 (円形判定)
 function isColliding(obj1, obj2, r1, r2) {
@@ -90,7 +103,8 @@ let items = [];
 const itemTypes = [
     { type: 'wide', color: '#ffff00', label: 'W' },
     { type: 'speed', color: '#00ff00', label: 'S' },
-    { type: 'barrier', color: '#00ffff', label: 'B' }
+    { type: 'barrier', color: '#00ffff', label: 'B' },
+    { type: 'life', color: '#ff6699', label: '♥' } // ライフ回復（レア）
 ];
 
 // 敵の弾
@@ -297,22 +311,33 @@ function movePlayerBullets() {
     }
 }
 
+function spawnOneEnemy() {
+    const x = Math.random() * (canvas.width - enemyWidth);
+    const y = -enemyHeight - Math.random() * 80; // 同時出現時に重ならないよう縦にずらす
+    const type = pickEnemyType();
+    const def = enemyTypeDefs[type];
+    enemies.push({
+        x, y, width: enemyWidth, height: enemyHeight,
+        type, color: def.color, hp: def.hp, maxHp: def.hp,
+        scoreValue: def.score, speedFactor: def.speedFactor, radius: def.radius,
+        baseX: x, phase: Math.random() * Math.PI * 2
+    });
+}
+
 function spawnEnemies() {
     if (boss) return;
-    
+
     enemySpawnTimer++;
-    const currentSpawnRate = Math.max(25, initialEnemySpawnRate - Math.floor(score / 100) * 5);
+    const level = difficultyLevel();
+    // 難易度はスピードではなく「数」で上げる: 間隔は少しだけ短く、同時出現数が主に増える
+    const currentSpawnRate = Math.max(50, initialEnemySpawnRate - level * 4);
     if (enemySpawnTimer > currentSpawnRate) {
-        const x = Math.random() * (canvas.width - enemyWidth);
-        const y = -enemyHeight;
-        const type = pickEnemyType();
-        const def = enemyTypeDefs[type];
-        enemies.push({
-            x, y, width: enemyWidth, height: enemyHeight,
-            type, color: def.color, hp: def.hp, maxHp: def.hp,
-            scoreValue: def.score, speedFactor: def.speedFactor, radius: def.radius,
-            baseX: x, phase: Math.random() * Math.PI * 2
-        });
+        let count = 1;
+        const maxExtra = Math.min(3, level - 1);
+        for (let i = 0; i < maxExtra; i++) {
+            if (Math.random() < 0.45) count++;
+        }
+        for (let i = 0; i < count; i++) spawnOneEnemy();
         enemySpawnTimer = 0;
     }
 
@@ -323,17 +348,23 @@ function spawnEnemies() {
 }
 
 function spawnBoss() {
+    const kinds = Object.keys(bossTypeDefs);
+    const kind = kinds[bossCount % kinds.length]; // 出現するたびに種類が変わる
+    bossCount++;
+    const hp = 50 + (score / 500) * 30;
     boss = {
+        kind,
         x: canvas.width / 2 - bossWidth / 2,
         y: -bossHeight,
         targetY: 80,
         width: bossWidth,
         height: bossHeight,
         radius: 50,
-        hp: 50 + (score / 500) * 30,
-        maxHp: 50 + (score / 500) * 30,
-        dx: 2,
-        shootTimer: 0
+        hp: hp,
+        maxHp: hp,
+        dx: kind === 'spinner' ? 3.5 : 2,
+        shootTimer: 0,
+        angle: 0
     };
 }
 
@@ -341,42 +372,90 @@ function moveBoss() {
     if (!boss) return;
     if (boss.y < boss.targetY) {
         boss.y += 1;
+    } else if (boss.kind === 'sniper') {
+        // スナイパーは自機の真上を狙ってゆっくり追尾
+        const targetX = player.x + player.width / 2 - boss.width / 2;
+        boss.x += (targetX - boss.x) * 0.02;
+        boss.x = Math.max(0, Math.min(canvas.width - boss.width, boss.x));
     } else {
         boss.x += boss.dx;
         if (boss.x <= 0 || boss.x >= canvas.width - boss.width) boss.dx *= -1;
     }
+
+    const def = bossTypeDefs[boss.kind];
+    const cx = boss.x + boss.width / 2;
+    const cy = boss.y + boss.height;
     boss.shootTimer++;
-    if (boss.shootTimer > 60) {
-        for (let i = -2; i <= 2; i++) {
-            enemyBullets.push({
-                x: boss.x + boss.width / 2,
-                y: boss.y + boss.height,
-                width: 8,
-                height: 15,
-                color: '#ff00ff',
-                vx: i * 1.5,
-                vy: 4
-            });
+    if (boss.kind === 'spread') {
+        if (boss.shootTimer > 60) {
+            for (let i = -2; i <= 2; i++) {
+                enemyBullets.push({ x: cx, y: cy, width: 8, height: 15, color: def.bulletColor, vx: i * 1.5, vy: 4 });
+            }
+            boss.shootTimer = 0;
         }
-        boss.shootTimer = 0;
+    } else if (boss.kind === 'spinner') {
+        if (boss.shootTimer > 75) {
+            boss.angle += 0.5; // 発射角が回転していく
+            for (let a = 0; a < 8; a++) {
+                const ang = boss.angle + a * Math.PI / 4;
+                enemyBullets.push({
+                    x: cx, y: boss.y + boss.height / 2, width: 8, height: 8, color: def.bulletColor,
+                    vx: Math.cos(ang) * 3.5, vy: Math.sin(ang) * 3.5
+                });
+            }
+            boss.shootTimer = 0;
+        }
+    } else { // sniper
+        if (boss.shootTimer > 45) {
+            const px = player.x + player.width / 2;
+            const py = player.y + player.height / 2;
+            const dist = Math.hypot(px - cx, py - cy) || 1;
+            enemyBullets.push({
+                x: cx, y: cy, width: 6, height: 12, color: def.bulletColor,
+                vx: (px - cx) / dist * 6, vy: (py - cy) / dist * 6
+            });
+            boss.shootTimer = 0;
+        }
     }
 }
 
 function drawBoss() {
     if (!boss) return;
+    const def = bossTypeDefs[boss.kind];
     ctx.save();
     ctx.translate(boss.x + boss.width / 2, boss.y + boss.height / 2);
-    ctx.fillStyle = '#9900cc';
+    ctx.fillStyle = def.color;
     ctx.shadowBlur = 20;
-    ctx.shadowColor = 'purple';
-    ctx.beginPath();
-    ctx.moveTo(-boss.width / 2, -boss.height / 2);
-    ctx.lineTo(boss.width / 2, -boss.height / 2);
-    ctx.lineTo(boss.width / 3, boss.height / 2);
-    ctx.lineTo(-boss.width / 3, boss.height / 2);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = (Math.floor(Date.now() / 200) % 2 === 0) ? '#ff00ff' : '#660066';
+    ctx.shadowColor = def.glow;
+    if (boss.kind === 'spinner') {
+        // 回転する円形ボディ
+        ctx.rotate(Date.now() / 300 % (Math.PI * 2));
+        ctx.beginPath();
+        ctx.arc(0, 0, boss.height / 2, 0, Math.PI * 2);
+        ctx.fill();
+        for (let a = 0; a < 4; a++) {
+            ctx.rotate(Math.PI / 2);
+            ctx.fillRect(boss.height / 2 - 5, -6, 22, 12); // 突起
+        }
+    } else if (boss.kind === 'sniper') {
+        // 下向きの鋭い三角形
+        ctx.beginPath();
+        ctx.moveTo(-boss.width / 2, -boss.height / 2);
+        ctx.lineTo(boss.width / 2, -boss.height / 2);
+        ctx.lineTo(0, boss.height / 2);
+        ctx.closePath();
+        ctx.fill();
+    } else {
+        ctx.beginPath();
+        ctx.moveTo(-boss.width / 2, -boss.height / 2);
+        ctx.lineTo(boss.width / 2, -boss.height / 2);
+        ctx.lineTo(boss.width / 3, boss.height / 2);
+        ctx.lineTo(-boss.width / 3, boss.height / 2);
+        ctx.closePath();
+        ctx.fill();
+    }
+    ctx.rotate(0);
+    ctx.fillStyle = (Math.floor(Date.now() / 200) % 2 === 0) ? def.bulletColor : def.color;
     ctx.beginPath();
     ctx.arc(0, 0, 15, 0, Math.PI * 2);
     ctx.fill();
@@ -386,7 +465,7 @@ function drawBoss() {
     const barX = (canvas.width - barWidth) / 2, barY = 40;
     ctx.fillStyle = '#333';
     ctx.fillRect(barX, barY, barWidth, barHeight);
-    ctx.fillStyle = '#ff00ff';
+    ctx.fillStyle = def.bulletColor;
     ctx.fillRect(barX, barY, (boss.hp / boss.maxHp) * barWidth, barHeight);
     ctx.strokeStyle = 'white';
     ctx.strokeRect(barX, barY, barWidth, barHeight);
@@ -394,7 +473,13 @@ function drawBoss() {
 
 function spawnItem(x, y) {
     if (Math.random() < 0.2) {
-        const typeInfo = itemTypes[Math.floor(Math.random() * itemTypes.length)];
+        // ♥（ライフ回復）だけ出にくくする: W/S/B 各30%、♥ 10%
+        const r = Math.random() * 100;
+        let typeInfo;
+        if (r < 30) typeInfo = itemTypes[0];
+        else if (r < 60) typeInfo = itemTypes[1];
+        else if (r < 90) typeInfo = itemTypes[2];
+        else typeInfo = itemTypes[3];
         items.push({ x, y, width: 30, height: 30, type: typeInfo.type, color: typeInfo.color, label: typeInfo.label, rotation: 0 });
     }
 }
@@ -487,7 +572,7 @@ function drawEnemies() {
 }
 
 function moveEnemies() {
-    enemySpeed = initialEnemySpeed + Math.floor(score / 200) * 0.5;
+    enemySpeed = initialEnemySpeed; // 速度は一定。難易度は敵の数とボスで上げる
     for (let i = enemies.length - 1; i >= 0; i--) {
         const e = enemies[i];
         e.y += enemySpeed * (e.speedFactor || 1);
@@ -501,7 +586,7 @@ function moveEnemies() {
 
 function enemyShoot() {
     enemyShootTimer++;
-    const currentShootRate = Math.max(40, initialEnemyShootRate - Math.floor(score / 150) * 5);
+    const currentShootRate = Math.max(40, initialEnemyShootRate - difficultyLevel() * 3);
     if (enemyShootTimer > currentShootRate && enemies.length > 0) {
         const randomEnemy = enemies[Math.floor(Math.random() * enemies.length)];
         enemyBullets.push({ x: randomEnemy.x + randomEnemy.width / 2 - 2.5, y: randomEnemy.y + randomEnemy.height, width: 5, height: 12, color: '#00ff44', vx: 0, vy: 5 });
@@ -523,7 +608,7 @@ function moveEnemyBullets() {
     for (let i = enemyBullets.length - 1; i >= 0; i--) {
         enemyBullets[i].x += enemyBullets[i].vx || 0;
         enemyBullets[i].y += enemyBullets[i].vy || 5;
-        if (enemyBullets[i].y > canvas.height || enemyBullets[i].x < -20 || enemyBullets[i].x > canvas.width + 20) enemyBullets.splice(i, 1);
+        if (enemyBullets[i].y > canvas.height || enemyBullets[i].y < -20 || enemyBullets[i].x < -20 || enemyBullets[i].x > canvas.width + 20) enemyBullets.splice(i, 1);
     }
 }
 
@@ -579,8 +664,7 @@ function checkCollisions() {
             if (boss.hp <= 0) {
                 createExplosion(boss.x + boss.width / 2, boss.y + boss.height / 2, '#ff00ff');
                 addKillScore(200);
-                boss = null;
-                player.lives = Math.min(5, player.lives + 1);
+                boss = null; // ライフ回復は♥アイテムに変更
             }
         }
     }
@@ -596,7 +680,16 @@ function checkCollisions() {
         }
     }
     for (let i = items.length - 1; i >= 0; i--) {
-        if (isColliding(player, items[i], player.radius, 15)) { player.powerUp = items[i].type; player.powerUpTimer = 600; items.splice(i, 1); score += 50; }
+        if (isColliding(player, items[i], player.radius, 15)) {
+            if (items[i].type === 'life') {
+                player.lives = Math.min(5, player.lives + 1);
+            } else {
+                player.powerUp = items[i].type;
+                player.powerUpTimer = 600;
+            }
+            items.splice(i, 1);
+            score += 50;
+        }
     }
 }
 
@@ -604,6 +697,13 @@ function drawUI() {
     ctx.fillStyle = 'white';
     ctx.font = 'bold 20px Arial';
     ctx.fillText(`SCORE: ${score}`, 10, 30);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#88aaff';
+    ctx.font = 'bold 16px Arial';
+    ctx.fillText(`LV ${difficultyLevel()}`, canvas.width / 2, 30);
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 20px Arial';
+    ctx.fillStyle = 'white';
     if (combo >= 2) {
         ctx.textAlign = 'right';
         ctx.fillStyle = '#ffcc00';
@@ -631,7 +731,7 @@ function resetGame() {
     playerBullets = []; enemies = []; enemyBullets = []; particles = []; items = [];
     score = 0; lastBossScore = 0; gameOver = false;
     combo = 0; lastKillTime = 0;
-    enemySpawnTimer = 0; enemyShootTimer = 0; enemySpeed = initialEnemySpeed; boss = null;
+    enemySpawnTimer = 0; enemyShootTimer = 0; enemySpeed = initialEnemySpeed; boss = null; bossCount = 0;
     gameOverScreen.style.display = 'none';
     requestAnimationFrame(update);
 }
