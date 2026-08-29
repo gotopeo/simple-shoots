@@ -96,11 +96,120 @@ let bossesDefeated = 0; // 倒した数に応じて敵・アイテムの種類�
 let bossTimer = 0;
 const bossInterval = 60 * 40; // 中ボスは約40秒ごと（時間基準なので後半も間隔が一定）
 
-// 中ボスの種類（出現するたびに切り替わる）
+// ボス弾の共通ヘルパー
+function bossBullet(x, y, w, h, color, vx, vy) {
+    enemyBullets.push({ x, y, width: w, height: h, color, vx, vy });
+}
+
+function aimAtPlayer(cx, cy, speed) {
+    const px = player.x + player.width / 2;
+    const py = player.y + player.height / 2;
+    const d = Math.hypot(px - cx, py - cy) || 1;
+    return { vx: (px - cx) / d * speed, vy: (py - cy) / d * speed };
+}
+
+// 中ボスの種類（10種類を順番に。一周すると同じ種類でも弾数が増えて強くなる）
+// shoot(b, cx, cy, p) の p は周回数（0始まり）
 const bossTypeDefs = {
-    spread:  { color: '#9900cc', glow: 'purple', bulletColor: '#ff00ff' }, // 扇状にばらまく
-    spinner: { color: '#cc3300', glow: 'orange', bulletColor: '#ff9900' }, // 回転しながら8方向弾
-    sniper:  { color: '#0066cc', glow: 'cyan',   bulletColor: '#00ccff' }  // 自機を狙い撃ち
+    spread: { // 扇状にばらまく
+        color: '#9900cc', glow: 'purple', bulletColor: '#ff00ff', shape: 'trapezoid', dx: 2, interval: 60,
+        shoot(b, cx, cy, p) {
+            const n = 2 + p;
+            for (let i = -n; i <= n; i++) bossBullet(cx, cy, 8, 15, this.bulletColor, i * (3 / n), 4);
+        }
+    },
+    spinner: { // 回転リング弾
+        color: '#cc3300', glow: 'orange', bulletColor: '#ff9900', shape: 'circle', dx: 3.5, interval: 75,
+        shoot(b, cx, cy, p) {
+            b.angle += 0.5;
+            const n = 8 + 3 * p;
+            for (let a = 0; a < n; a++) {
+                const ang = b.angle + a * Math.PI * 2 / n;
+                bossBullet(cx, b.y + b.height / 2, 8, 8, this.bulletColor, Math.cos(ang) * 3.5, Math.sin(ang) * 3.5);
+            }
+        }
+    },
+    sniper: { // 自機狙い（追尾移動）
+        color: '#0066cc', glow: 'cyan', bulletColor: '#00ccff', shape: 'triangle', dx: 2, interval: 45, track: true,
+        shoot(b, cx, cy, p) {
+            const aim = aimAtPlayer(cx, cy, 6);
+            const base = Math.atan2(aim.vy, aim.vx);
+            for (let i = 0; i <= p; i++) {
+                const off = (i - p / 2) * 0.15;
+                bossBullet(cx, cy, 6, 12, this.bulletColor, Math.cos(base + off) * 6, Math.sin(base + off) * 6);
+            }
+        }
+    },
+    rain: { // 画面全体にランダムに降らせる
+        color: '#009999', glow: '#00ffff', bulletColor: '#66ffee', shape: 'trapezoid', dx: 2.5, interval: 50,
+        shoot(b, cx, cy, p) {
+            const n = 3 + p;
+            for (let i = 0; i < n; i++) {
+                bossBullet(Math.random() * canvas.width, b.y + b.height, 6, 12, this.bulletColor, 0, 3.5 + Math.random() * 1.5);
+            }
+        }
+    },
+    wall: { // 横一列の弾幕（すき間をくぐる）
+        color: '#339933', glow: '#66ff66', bulletColor: '#88ff44', shape: 'hexagon', dx: 1.5, interval: 95,
+        shoot(b, cx, cy, p) {
+            const cols = 8 + 2 * p;
+            const gap = Math.floor(Math.random() * (cols - 1));
+            for (let i = 0; i < cols; i++) {
+                if (i === gap || i === gap + 1) continue;
+                bossBullet((i + 0.5) * canvas.width / cols, b.y + b.height, 8, 8, this.bulletColor, 0, 3);
+            }
+        }
+    },
+    twin: { // 左右から斜めのストリーム
+        color: '#999900', glow: 'yellow', bulletColor: '#ffff66', shape: 'diamond', dx: 3, interval: 55,
+        shoot(b, cx, cy, p) {
+            for (let i = 0; i <= p; i++) {
+                const s = 0.35 + i * 0.2;
+                bossBullet(cx - 20, cy, 6, 12, this.bulletColor, -Math.sin(s) * 4.5, Math.cos(s) * 4.5);
+                bossBullet(cx + 20, cy, 6, 12, this.bulletColor, Math.sin(s) * 4.5, Math.cos(s) * 4.5);
+            }
+        }
+    },
+    burst: { // 自機に向けてショットガン
+        color: '#cc0066', glow: '#ff66aa', bulletColor: '#ff88bb', shape: 'triangle', dx: 2, interval: 80, track: true,
+        shoot(b, cx, cy, p) {
+            const aim = aimAtPlayer(cx, cy, 5);
+            const base = Math.atan2(aim.vy, aim.vx);
+            const n = 3 + p;
+            for (let i = 0; i < n; i++) {
+                const off = (i - (n - 1) / 2) * 0.18;
+                bossBullet(cx, cy, 7, 10, this.bulletColor, Math.cos(base + off) * 5, Math.sin(base + off) * 5);
+            }
+        }
+    },
+    cross: { // 全方位への固定角弾
+        color: '#666699', glow: '#aaaaff', bulletColor: '#ccccff', shape: 'circle', dx: 2.5, interval: 70,
+        shoot(b, cx, cy, p) {
+            const n = 4 + 2 * p;
+            for (let a = 0; a < n; a++) {
+                const ang = a * Math.PI * 2 / n + Math.PI / 4;
+                bossBullet(cx, b.y + b.height / 2, 8, 8, this.bulletColor, Math.cos(ang) * 4.5, Math.sin(ang) * 4.5);
+            }
+        }
+    },
+    wave: { // 振り子のように左右へ掃射
+        color: '#3399ff', glow: '#66ccff', bulletColor: '#99ddff', shape: 'diamond', dx: 2, interval: 18,
+        shoot(b, cx, cy, p) {
+            b.angle += 0.35;
+            for (let i = 0; i <= p; i++) {
+                const off = Math.sin(b.angle + i * 0.9) * 0.9;
+                bossBullet(cx, cy, 6, 12, this.bulletColor, Math.sin(off) * 4.5, Math.cos(off) * 4.5);
+            }
+        }
+    },
+    summoner: { // 雑魚敵を呼び出しつつ狙い撃ち
+        color: '#660033', glow: '#ff3399', bulletColor: '#ff66cc', shape: 'hexagon', dx: 1.5, interval: 100,
+        shoot(b, cx, cy, p) {
+            for (let i = 0; i <= p; i++) spawnOneEnemy();
+            const aim = aimAtPlayer(cx, cy, 5);
+            bossBullet(cx, cy, 7, 12, this.bulletColor, aim.vx, aim.vy);
+        }
+    }
 };
 
 // 難易度レベル（スコア300ごとに1上昇。敵の数が増えていく）
@@ -425,12 +534,15 @@ function spawnEnemies() {
 
 function spawnBoss() {
     const kinds = Object.keys(bossTypeDefs);
-    const kind = kinds[bossCount % kinds.length]; // 出現するたびに種類が変わる
-    const hp = 50 + bossCount * 30; // 出現回数に応じて硬くなる
+    const kind = kinds[bossCount % kinds.length]; // 10種類を順番に
+    const power = Math.floor(bossCount / kinds.length); // 一周ごとに弾数が増える
+    const def = bossTypeDefs[kind];
+    const hp = 50 + bossCount * 20; // 出現回数に応じて硬くなる
     bossCount++;
     playSound('bossAppear');
     boss = {
         kind,
+        power,
         x: canvas.width / 2 - bossWidth / 2,
         y: -bossHeight,
         targetY: 80,
@@ -439,7 +551,7 @@ function spawnBoss() {
         radius: 50,
         hp: hp,
         maxHp: hp,
-        dx: kind === 'spinner' ? 3.5 : 2,
+        dx: def.dx,
         shootTimer: 0,
         angle: 0
     };
@@ -447,10 +559,11 @@ function spawnBoss() {
 
 function moveBoss() {
     if (!boss) return;
+    const def = bossTypeDefs[boss.kind];
     if (boss.y < boss.targetY) {
         boss.y += 1;
-    } else if (boss.kind === 'sniper') {
-        // スナイパーは自機の真上を狙ってゆっくり追尾
+    } else if (def.track) {
+        // 自機の真上を狙ってゆっくり追尾
         const targetX = player.x + player.width / 2 - boss.width / 2;
         boss.x += (targetX - boss.x) * 0.02;
         boss.x = Math.max(0, Math.min(canvas.width - boss.width, boss.x));
@@ -459,40 +572,10 @@ function moveBoss() {
         if (boss.x <= 0 || boss.x >= canvas.width - boss.width) boss.dx *= -1;
     }
 
-    const def = bossTypeDefs[boss.kind];
-    const cx = boss.x + boss.width / 2;
-    const cy = boss.y + boss.height;
     boss.shootTimer++;
-    if (boss.kind === 'spread') {
-        if (boss.shootTimer > 60) {
-            for (let i = -2; i <= 2; i++) {
-                enemyBullets.push({ x: cx, y: cy, width: 8, height: 15, color: def.bulletColor, vx: i * 1.5, vy: 4 });
-            }
-            boss.shootTimer = 0;
-        }
-    } else if (boss.kind === 'spinner') {
-        if (boss.shootTimer > 75) {
-            boss.angle += 0.5; // 発射角が回転していく
-            for (let a = 0; a < 8; a++) {
-                const ang = boss.angle + a * Math.PI / 4;
-                enemyBullets.push({
-                    x: cx, y: boss.y + boss.height / 2, width: 8, height: 8, color: def.bulletColor,
-                    vx: Math.cos(ang) * 3.5, vy: Math.sin(ang) * 3.5
-                });
-            }
-            boss.shootTimer = 0;
-        }
-    } else { // sniper
-        if (boss.shootTimer > 45) {
-            const px = player.x + player.width / 2;
-            const py = player.y + player.height / 2;
-            const dist = Math.hypot(px - cx, py - cy) || 1;
-            enemyBullets.push({
-                x: cx, y: cy, width: 6, height: 12, color: def.bulletColor,
-                vx: (px - cx) / dist * 6, vy: (py - cy) / dist * 6
-            });
-            boss.shootTimer = 0;
-        }
+    if (boss.shootTimer > def.interval) {
+        def.shoot(boss, boss.x + boss.width / 2, boss.y + boss.height, boss.power);
+        boss.shootTimer = 0;
     }
 }
 
@@ -504,7 +587,7 @@ function drawBoss() {
     ctx.fillStyle = def.color;
     ctx.shadowBlur = 20;
     ctx.shadowColor = def.glow;
-    if (boss.kind === 'spinner') {
+    if (def.shape === 'circle') {
         // 回転する円形ボディ
         ctx.rotate(Date.now() / 300 % (Math.PI * 2));
         ctx.beginPath();
@@ -514,12 +597,30 @@ function drawBoss() {
             ctx.rotate(Math.PI / 2);
             ctx.fillRect(boss.height / 2 - 5, -6, 22, 12); // 突起
         }
-    } else if (boss.kind === 'sniper') {
+    } else if (def.shape === 'triangle') {
         // 下向きの鋭い三角形
         ctx.beginPath();
         ctx.moveTo(-boss.width / 2, -boss.height / 2);
         ctx.lineTo(boss.width / 2, -boss.height / 2);
         ctx.lineTo(0, boss.height / 2);
+        ctx.closePath();
+        ctx.fill();
+    } else if (def.shape === 'diamond') {
+        ctx.beginPath();
+        ctx.moveTo(0, -boss.height / 2);
+        ctx.lineTo(boss.width / 2, 0);
+        ctx.lineTo(0, boss.height / 2);
+        ctx.lineTo(-boss.width / 2, 0);
+        ctx.closePath();
+        ctx.fill();
+    } else if (def.shape === 'hexagon') {
+        ctx.beginPath();
+        ctx.moveTo(-boss.width / 2, 0);
+        ctx.lineTo(-boss.width / 4, -boss.height / 2);
+        ctx.lineTo(boss.width / 4, -boss.height / 2);
+        ctx.lineTo(boss.width / 2, 0);
+        ctx.lineTo(boss.width / 4, boss.height / 2);
+        ctx.lineTo(-boss.width / 4, boss.height / 2);
         ctx.closePath();
         ctx.fill();
     } else {
@@ -546,6 +647,12 @@ function drawBoss() {
     ctx.fillRect(barX, barY, (boss.hp / boss.maxHp) * barWidth, barHeight);
     ctx.strokeStyle = 'white';
     ctx.strokeRect(barX, barY, barWidth, barHeight);
+    if (boss.power > 0) {
+        // 2周目以降は強化されていることを表示
+        ctx.fillStyle = '#ffcc00';
+        ctx.font = 'bold 14px Arial';
+        ctx.fillText(`Lv${boss.power + 1}`, barX + barWidth + 8, barY + barHeight);
+    }
 }
 
 function spawnItem(x, y) {
