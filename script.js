@@ -7,6 +7,75 @@ const restartButton = document.getElementById('restartButton');
 canvas.width = 480;
 canvas.height = 640;
 
+// サウンドエフェクト（Web Audio APIで合成。外部ファイル不要）
+let audioCtx = null;
+function ensureAudio() {
+    if (!audioCtx) {
+        try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+    }
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+}
+// ブラウザの自動再生制限対策: 最初の操作で有効化
+['touchstart', 'mousedown', 'keydown'].forEach(ev => document.addEventListener(ev, ensureAudio));
+
+function playSound(type) {
+    if (!audioCtx || audioCtx.state !== 'running') return;
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    if (type === 'shoot') {
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(880, t);
+        osc.frequency.exponentialRampToValueAtTime(330, t + 0.07);
+        gain.gain.setValueAtTime(0.03, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+        osc.start(t); osc.stop(t + 0.08);
+    } else if (type === 'explosion') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, t);
+        osc.frequency.exponentialRampToValueAtTime(35, t + 0.25);
+        gain.gain.setValueAtTime(0.12, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+        osc.start(t); osc.stop(t + 0.26);
+    } else if (type === 'clink') {
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(1500, t);
+        gain.gain.setValueAtTime(0.04, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+        osc.start(t); osc.stop(t + 0.06);
+    } else if (type === 'hit') {
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(220, t);
+        osc.frequency.exponentialRampToValueAtTime(45, t + 0.35);
+        gain.gain.setValueAtTime(0.18, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+        osc.start(t); osc.stop(t + 0.36);
+    } else if (type === 'item') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(660, t);
+        osc.frequency.setValueAtTime(990, t + 0.08);
+        gain.gain.setValueAtTime(0.08, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+        osc.start(t); osc.stop(t + 0.19);
+    } else if (type === 'bossAppear') {
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(80, t);
+        osc.frequency.linearRampToValueAtTime(240, t + 0.5);
+        gain.gain.setValueAtTime(0.15, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+        osc.start(t); osc.stop(t + 0.61);
+    } else if (type === 'bossDown') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(500, t);
+        osc.frequency.exponentialRampToValueAtTime(40, t + 0.6);
+        gain.gain.setValueAtTime(0.18, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+        osc.start(t); osc.stop(t + 0.61);
+    }
+}
+
 // 星の背景
 let stars = [];
 for (let i = 0; i < 100; i++) {
@@ -23,6 +92,9 @@ let boss = null;
 const bossWidth = 120;
 const bossHeight = 80;
 let bossCount = 0;
+let bossesDefeated = 0; // 倒した数に応じて敵・アイテムの種類が解禁される
+let bossTimer = 0;
+const bossInterval = 60 * 40; // 中ボスは約40秒ごと（時間基準なので後半も間隔が一定）
 
 // 中ボスの種類（出現するたびに切り替わる）
 const bossTypeDefs = {
@@ -80,11 +152,12 @@ const enemyTypeDefs = {
     tank:   { color: '#aa66ff', hp: 3, speedFactor: 0.5, score: 50, radius: 18 }
 };
 
-// スコアに応じて出現する敵の種類を抽選（高スコアほど強敵が混ざる）
+// 敵の種類は中ボスを倒すごとに解禁されていく
 function pickEnemyType() {
-    const pool = [['normal', 50], ['zigzag', 25]];
-    if (score >= 100) pool.push(['speedy', 15]);
-    if (score >= 300) pool.push(['tank', 12]);
+    const pool = [['normal', 50]];
+    if (bossesDefeated >= 1) pool.push(['zigzag', 25]);
+    if (bossesDefeated >= 2) pool.push(['speedy', 15]);
+    if (bossesDefeated >= 3) pool.push(['tank', 12]);
     const total = pool.reduce((sum, p) => sum + p[1], 0);
     let roll = Math.random() * total;
     for (const [type, weight] of pool) {
@@ -287,6 +360,7 @@ function playerShoot() {
             });
         }
         lastShootTime = now;
+        playSound('shoot');
     }
 }
 
@@ -341,17 +415,20 @@ function spawnEnemies() {
         enemySpawnTimer = 0;
     }
 
-    if (score >= lastBossScore + 500) {
+    // ボスは時間基準で出現（ボス戦中はカウントしないので間隔はずっと一定）
+    bossTimer++;
+    if (bossTimer >= bossInterval) {
         spawnBoss();
-        lastBossScore += 500;
+        bossTimer = 0;
     }
 }
 
 function spawnBoss() {
     const kinds = Object.keys(bossTypeDefs);
     const kind = kinds[bossCount % kinds.length]; // 出現するたびに種類が変わる
+    const hp = 50 + bossCount * 30; // 出現回数に応じて硬くなる
     bossCount++;
-    const hp = 50 + (score / 500) * 30;
+    playSound('bossAppear');
     boss = {
         kind,
         x: canvas.width / 2 - bossWidth / 2,
@@ -473,13 +550,18 @@ function drawBoss() {
 
 function spawnItem(x, y) {
     if (Math.random() < 0.2) {
-        // ♥（ライフ回復）だけ出にくくする: W/S/B 各30%、♥ 10%
-        const r = Math.random() * 100;
-        let typeInfo;
-        if (r < 30) typeInfo = itemTypes[0];
-        else if (r < 60) typeInfo = itemTypes[1];
-        else if (r < 90) typeInfo = itemTypes[2];
-        else typeInfo = itemTypes[3];
+        // アイテムも中ボス撃破ごとに解禁: W → S → B → ♥（♥だけ出にくい）
+        const pool = [[itemTypes[0], 30]];
+        if (bossesDefeated >= 1) pool.push([itemTypes[1], 30]);
+        if (bossesDefeated >= 2) pool.push([itemTypes[2], 30]);
+        if (bossesDefeated >= 3) pool.push([itemTypes[3], 10]);
+        const total = pool.reduce((sum, p) => sum + p[1], 0);
+        let roll = Math.random() * total;
+        let typeInfo = pool[0][0];
+        for (const [ti, weight] of pool) {
+            roll -= weight;
+            if (roll < 0) { typeInfo = ti; break; }
+        }
         items.push({ x, y, width: 30, height: 30, type: typeInfo.type, color: typeInfo.color, label: typeInfo.label, rotation: 0 });
     }
 }
@@ -651,8 +733,10 @@ function checkCollisions() {
                     spawnItem(e.x + e.width / 2, e.y + e.height / 2);
                     enemies.splice(j, 1);
                     addKillScore(e.scoreValue || 10);
+                    playSound('explosion');
                 } else {
                     createExplosion(b.x, b.y, '#ffffff');
+                    playSound('clink');
                 }
                 break;
             }
@@ -664,6 +748,8 @@ function checkCollisions() {
             if (boss.hp <= 0) {
                 createExplosion(boss.x + boss.width / 2, boss.y + boss.height / 2, '#ff00ff');
                 addKillScore(200);
+                bossesDefeated++; // 新しい敵・アイテムが解禁される
+                playSound('bossDown');
                 boss = null; // ライフ回復は♥アイテムに変更
             }
         }
@@ -675,6 +761,7 @@ function checkCollisions() {
         if (boss && isColliding(player, boss, player.radius, boss.radius)) hit = true;
         if (hit) {
             combo = 0; // 被弾でコンボリセット
+            playSound('hit');
             if (player.powerUp === 'barrier') { player.powerUp = null; player.invincible = 60; createExplosion(player.x + player.width / 2, player.y + player.height / 2, '#00ffff'); }
             else { player.lives--; player.invincible = 120; createExplosion(player.x + player.width / 2, player.y + player.height / 2, player.color); if (player.lives <= 0) gameOver = true; }
         }
@@ -689,6 +776,7 @@ function checkCollisions() {
             }
             items.splice(i, 1);
             score += 50;
+            playSound('item');
         }
     }
 }
@@ -731,7 +819,8 @@ function resetGame() {
     playerBullets = []; enemies = []; enemyBullets = []; particles = []; items = [];
     score = 0; lastBossScore = 0; gameOver = false;
     combo = 0; lastKillTime = 0;
-    enemySpawnTimer = 0; enemyShootTimer = 0; enemySpeed = initialEnemySpeed; boss = null; bossCount = 0;
+    enemySpawnTimer = 0; enemyShootTimer = 0; enemySpeed = initialEnemySpeed;
+    boss = null; bossCount = 0; bossesDefeated = 0; bossTimer = 0;
     gameOverScreen.style.display = 'none';
     requestAnimationFrame(update);
 }
